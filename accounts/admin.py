@@ -1,62 +1,48 @@
 from django.contrib import admin
-from accounts.models import UserProfile, UserInterest, UserCompany, UserIndustry
+from accounts.models import UserProfile, UserInterest, UserCompany, UserIndustry, PriceAlert
 
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ['user', 'telegram_username', 'status', 'is_onboarding_complete', 'created_at']
-    list_filter = ['status', 'is_onboarding_complete', 'notifications_enabled', 'created_at']
-    search_fields = ['user__username', 'telegram_username', 'telegram_user_id']
-    readonly_fields = ['created_at', 'updated_at']
+    list_display = ['user', 'timezone', 'language', 'is_onboarding_complete', 'is_active']
+    list_filter = ['timezone', 'language', 'is_onboarding_complete', 'is_active']
+    search_fields = ['user__username', 'telegram_username']
+    readonly_fields = ['id', 'created_at', 'updated_at']
     
     fieldsets = (
-        ('User', {
-            'fields': ('user', 'telegram_user_id', 'telegram_chat_id', 'telegram_username')
-        }),
-        ('Profile Information', {
-            'fields': ('bio', 'profession', 'avatar_url')
-        }),
-        ('Status', {
-            'fields': ('status', 'is_onboarding_complete', 'onboarding_step')
-        }),
-        ('Notifications', {
-            'fields': (
-                'notifications_enabled', 'morning_briefing_enabled',
-                'evening_summary_enabled', 'weekly_digest_enabled', 'breaking_news_enabled'
-            )
-        }),
-        ('Briefing Schedule', {
-            'fields': ('morning_briefing_hour', 'evening_briefing_hour', 'timezone')
-        }),
-        ('Preferences', {
-            'fields': ('language', 'verbose_mode')
-        }),
-        ('Metadata', {
-            'fields': ('created_at', 'updated_at', 'last_active'),
-            'classes': ('collapse',)
-        }),
+        ('User', {'fields': ('user', 'id')}),
+        ('Telegram', {'fields': ('telegram_user_id', 'telegram_chat_id', 'telegram_username')}),
+        ('Preferences', {'fields': ('timezone', 'language', 'currency', 'verbose_mode')}),
+        ('Notifications', {'fields': ('notifications_enabled', 'morning_briefing_enabled', 'briefing_time')}),
+        ('Account', {'fields': ('role', 'is_active', 'is_verified')}),
+        ('Onboarding', {'fields': ('is_onboarding_complete', 'onboarding_completed_at')}),
+        ('Timestamps', {'fields': ('created_at', 'updated_at')}),
     )
 
 
 @admin.register(UserInterest)
 class UserInterestAdmin(admin.ModelAdmin):
-    list_display = ['profile', 'name', 'category', 'created_at']
-    list_filter = ['category', 'created_at']
-    search_fields = ['profile__user__username', 'name']
-    readonly_fields = ['created_at']
+    list_display = ['user', 'name', 'created_at']
+    list_filter = ['created_at']
+    search_fields = ['user__username', 'name']
 
 
 @admin.register(UserCompany)
 class UserCompanyAdmin(admin.ModelAdmin):
-    list_display = ['profile', 'name', 'symbol', 'industry', 'created_at']
-    list_filter = ['industry', 'created_at']
-    search_fields = ['profile__user__username', 'name', 'symbol']
-    readonly_fields = ['created_at']
+    list_display = ['user', 'name', 'symbol', 'current_price', 'created_at']
+    list_filter = ['created_at', 'industry']
+    search_fields = ['user__username', 'name', 'symbol']
 
 
 @admin.register(UserIndustry)
 class UserIndustryAdmin(admin.ModelAdmin):
-    list_display = ['profile', 'name', 'created_at']
+    list_display = ['user', 'name', 'created_at']
     list_filter = ['created_at']
-    search_fields = ['profile__user__username', 'name']
-    readonly_fields = ['created_at']
+    search_fields = ['user__username', 'name']
+
+
+@admin.register(PriceAlert)
+class PriceAlertAdmin(admin.ModelAdmin):
+    list_display = ['user', 'company', 'alert_type', 'target_price', 'is_active', 'triggered']
+    list_filter = ['alert_type', 'is_active', 'triggered', 'created_at']
+    search_fields = ['user__username', 'company__name']

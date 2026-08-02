@@ -1,85 +1,73 @@
 from rest_framework import serializers
+from accounts.models import UserProfile, UserInterest, UserCompany, UserIndustry, PriceAlert
 from django.contrib.auth.models import User
-from accounts.models import UserProfile, UserInterest, UserCompany, UserIndustry
 
 
-class UserSerializer(serializers.ModelSerializer):
-    """Serializer for User model"""
+class UserProfileSerializer(serializers.ModelSerializer):
+    """Serializer for UserProfile"""
     class Meta:
-        model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name']
-        read_only_fields = ['id']
+        model = UserProfile
+        fields = [
+            'id', 'timezone', 'language', 'currency', 'verbose_mode',
+            'notifications_enabled', 'morning_briefing_enabled', 'briefing_time',
+            'price_alerts_enabled', 'role', 'is_onboarding_complete',
+            'last_activity_at', 'created_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'last_activity_at']
 
 
 class UserInterestSerializer(serializers.ModelSerializer):
-    """Serializer for UserInterest model"""
+    """Serializer for UserInterest"""
     class Meta:
         model = UserInterest
-        fields = ['id', 'name', 'category', 'created_at']
+        fields = ['id', 'name', 'description', 'created_at']
         read_only_fields = ['id', 'created_at']
 
 
 class UserCompanySerializer(serializers.ModelSerializer):
-    """Serializer for UserCompany model"""
+    """Serializer for UserCompany"""
     class Meta:
         model = UserCompany
-        fields = ['id', 'name', 'symbol', 'industry', 'created_at']
-        read_only_fields = ['id', 'created_at']
+        fields = [
+            'id', 'name', 'symbol', 'industry', 'description',
+            'current_price', 'price_alert_enabled', 'created_at'
+        ]
+        read_only_fields = ['id', 'current_price', 'created_at']
 
 
 class UserIndustrySerializer(serializers.ModelSerializer):
-    """Serializer for UserIndustry model"""
+    """Serializer for UserIndustry"""
     class Meta:
         model = UserIndustry
-        fields = ['id', 'name', 'created_at']
+        fields = ['id', 'name', 'description', 'created_at']
         read_only_fields = ['id', 'created_at']
 
 
-class UserProfileSerializer(serializers.ModelSerializer):
-    """Serializer for UserProfile model"""
-    user = UserSerializer(read_only=True)
+class PriceAlertSerializer(serializers.ModelSerializer):
+    """Serializer for PriceAlert"""
+    company_name = serializers.CharField(source='company.name', read_only=True)
+    
+    class Meta:
+        model = PriceAlert
+        fields = [
+            'id', 'company', 'company_name', 'alert_type', 'target_price',
+            'is_active', 'triggered', 'created_at'
+        ]
+        read_only_fields = ['id', 'triggered', 'created_at']
+
+
+class UserDetailSerializer(serializers.ModelSerializer):
+    """Detailed user serializer with profile"""
+    profile = UserProfileSerializer(read_only=True)
     interests = UserInterestSerializer(many=True, read_only=True)
-    followed_companies = UserCompanySerializer(many=True, read_only=True)
+    companies = UserCompanySerializer(many=True, read_only=True)
     industries = UserIndustrySerializer(many=True, read_only=True)
     
     class Meta:
-        model = UserProfile
+        model = User
         fields = [
-            'id', 'user', 'telegram_user_id', 'telegram_chat_id', 'telegram_username',
-            'bio', 'profession', 'avatar_url', 'status', 'is_onboarding_complete',
-            'notifications_enabled', 'morning_briefing_enabled', 'evening_summary_enabled',
-            'weekly_digest_enabled', 'breaking_news_enabled', 'morning_briefing_hour',
-            'evening_briefing_hour', 'timezone', 'language', 'verbose_mode',
-            'interests', 'followed_companies', 'industries', 'created_at', 'updated_at'
+            'id', 'username', 'email', 'first_name', 'last_name',
+            'profile', 'interests', 'companies', 'industries',
+            'date_joined'
         ]
-        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
-
-
-class UserProfileUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for updating UserProfile"""
-    class Meta:
-        model = UserProfile
-        fields = [
-            'bio', 'profession', 'notifications_enabled', 'morning_briefing_enabled',
-            'evening_summary_enabled', 'weekly_digest_enabled', 'breaking_news_enabled',
-            'morning_briefing_hour', 'evening_briefing_hour', 'timezone', 'language', 'verbose_mode'
-        ]
-
-
-class TelegramAuthSerializer(serializers.Serializer):
-    """Serializer for Telegram authentication"""
-    telegram_user_id = serializers.IntegerField()
-    telegram_chat_id = serializers.IntegerField()
-    telegram_username = serializers.CharField(max_length=255, required=False)
-    first_name = serializers.CharField(max_length=255, required=False)
-    last_name = serializers.CharField(max_length=255, required=False)
-    
-    def validate_telegram_user_id(self, value):
-        if value <= 0:
-            raise serializers.ValidationError('Invalid Telegram user ID')
-        return value
-    
-    def validate_telegram_chat_id(self, value):
-        if value == 0:
-            raise serializers.ValidationError('Invalid Telegram chat ID')
-        return value
+        read_only_fields = ['id', 'date_joined']

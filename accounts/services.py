@@ -1,14 +1,18 @@
-from django.contrib.auth.models import User
-from accounts.models import UserProfile, UserInterest, UserCompany, UserIndustry
-from django.utils import timezone
-from typing import Dict, Optional, List
 import logging
+from typing import List, Optional, Dict, Tuple
+from django.contrib.auth.models import User
+from accounts.models import (
+    UserProfile, UserInterest, UserCompany,
+    UserIndustry, PriceAlert
+)
+from django.utils import timezone
+from core.constants import LAST_ACTIVITY_UPDATE_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
 
 class UserService:
-    """Service for user operations"""
+    """Service for user management"""
     
     @staticmethod
     def get_or_create_telegram_user(
@@ -17,164 +21,110 @@ class UserService:
         username: str,
         first_name: str = None,
         last_name: str = None
-    ) -> tuple:
+    ) -> Tuple[User, bool]:
         """
         Get or create user from Telegram data
         Returns: (user, created)
         """
-        try:
-            profile = UserProfile.objects.select_related('user').get(
-                telegram_user_id=telegram_user_id
-            )
-            return profile.user, False
-        except UserProfile.DoesNotExist:
-            pass
+        # Check if user exists by telegram_user_id
+        existing_profile = UserProfile.objects.filter(
+            telegram_user_id=telegram_user_id
+        ).first()
+        
+        if existing_profile:
+            return existing_profile.user, False
         
         # Create new user
-        user_email = f"telegram_{telegram_user_id}@atlas.ai"
-        user, created = User.objects.get_or_create(
-            username=f"tg_{telegram_user_id}",
-            defaults={
-                'email': user_email,
-                'first_name': first_name or '',
-                'last_name': last_name or '',
-            }
+        user = User.objects.create_user(
+            username=username,
+            first_name=first_name or '',
+            last_name=last_name or ''
         )
         
         # Create profile
-        profile, _ = UserProfile.objects.get_or_create(
+        UserProfile.objects.create(
             user=user,
-            defaults={
-                'telegram_user_id': telegram_user_id,
-                'telegram_chat_id': telegram_chat_id,
-                'telegram_username': username,
-            }
+            telegram_user_id=telegram_user_id,
+            telegram_chat_id=telegram_chat_id,
+            telegram_username=username
         )
         
-        logger.info(f'Created new Telegram user: {telegram_user_id}')
+        logger.info(f'Created new user {user.username} from Telegram {telegram_user_id}')
         return user, True
     
     @staticmethod
-    def update_telegram_user(
-        user: User,
-        telegram_chat_id: int = None,
-        telegram_username: str = None
-    ) -> UserProfile:
-        """
-        Update Telegram user information
-        """
-        profile = user.profile
-        
-        if telegram_chat_id:
-            profile.telegram_chat_id = telegram_chat_id
-        if telegram_username:
-            profile.telegram_username = telegram_username
-        
-        profile.mark_active()
-        return profile
-    
-    @staticmethod
     def mark_user_active(user: User) -> None:
-        """Mark user as active"""
-        profile = user.profile
-        profile.mark_active()
-    
-    @staticmethod
-    def get_user_profile(user: User) -> UserProfile:
-        """Get user profile"""
-        return UserProfile.objects.prefetch_related(
-            'interests',
-            'followed_companies',
-            'industries'
-        ).get(user=user)
-    
-    @staticmethod
-    def update_user_preferences(
-        user: User,
-        preferences: Dict
-    ) -> UserProfile:
         """
-        Update user preferences
+        Mark user as active
         """
         profile = user.profile
+        now = timezone.now()
         
-        allowed_fields = [
-            'bio', 'profession', 'notifications_enabled',
-            'morning_briefing_enabled', 'evening_summary_enabled',
-            'weekly_digest_enabled', 'breaking_news_enabled',
-            'morning_briefing_hour', 'evening_briefing_hour',
-            'timezone', 'language', 'verbose_mode'
-        ]
+        # Only update if threshold has passed
+        if (profile.last_activity_at is None or
+            (now - profile.last_activity_at) > LAST_ACTIVITY_UPDATE_THRESHOLD):
+            profile.update_last_activity()
+    
+    @staticmethod
+    def get_inactive_users(days: int = 30) -> List[User]:
+        """
+        Get users inactive for N days
+        """
+        from datetime import timedelta
+        from django.utils import timezone
         
-        for field, value in preferences.items():
-            if field in allowed_fields:
-                setattr(profile, field, value)
-        
-        profile.save()
-        logger.info(f'Updated preferences for user: {user.username}')
-        return profile
+        threshold = timezone.now() - timedelta(days=days)
+        return User.objects.filter(
+            profile__last_activity_at__lt=threshold
+        )
+    
+    @staticmethod
+    def get_active_users() -> List[User]:
+        """
+        Get all active users
+        """
+        return User.objects.filter(
+            profile__is_active=True
+        )
 
 
 class UserInterestService:
     """Service for user interests"""
     
     @staticmethod
-    def add_interest(
-        user: User,
-        name: str,
-        category: str = None
-    ) -> UserInterest:
+    def add_interest(user: User, name: str, description: str = None) -> UserInterest:
         """
         Add interest for user
         """
-        profile = user.profile
         interest, created = UserInterest.objects.get_or_create(
-            profile=profile,
+            user=user,
             name=name,
-            defaults={'category': category}
+            defaults={'description': description}
         )
         logger.info(f'Added interest {name} for user {user.username}')
         return interest
     
     @staticmethod
-    def remove_interest(user: User, interest_id: str) -> bool:
+    def remove_interest(user: User, name: str) -> bool:
         """
         Remove interest for user
         """
-        profile = user.profile
-        try:
-            interest = UserInterest.objects.get(id=interest_id, profile=profile)
-            interest.delete()
-            logger.info(f'Removed interest {interest_id} for user {user.username}')
-            return True
-        except UserInterest.DoesNotExist:
-            return False
+        deleted_count, _ = UserInterest.objects.filter(
+            user=user,
+            name=name
+        ).delete()
+        return deleted_count > 0
     
     @staticmethod
     def get_user_interests(user: User) -> List[UserInterest]:
         """
         Get all interests for user
         """
-        profile = user.profile
-        return UserInterest.objects.filter(profile=profile).order_by('-created_at')
-    
-    @staticmethod
-    def add_default_interests(user: User) -> None:
-        """
-        Add default interests for new user
-        """
-        from core.constants import DEFAULT_INTERESTS
-        profile = user.profile
-        
-        for interest_name in DEFAULT_INTERESTS:
-            UserInterest.objects.get_or_create(
-                profile=profile,
-                name=interest_name
-            )
+        return UserInterest.objects.filter(user=user)
 
 
 class UserCompanyService:
-    """Service for user followed companies"""
+    """Service for user companies"""
     
     @staticmethod
     def add_company(
@@ -184,80 +134,134 @@ class UserCompanyService:
         industry: str = None
     ) -> UserCompany:
         """
-        Add company for user to follow
+        Add company for user
         """
-        profile = user.profile
         company, created = UserCompany.objects.get_or_create(
-            profile=profile,
-            symbol=symbol if symbol else name,
-            defaults={
-                'name': name,
-                'industry': industry
-            }
+            user=user,
+            name=name,
+            defaults={'symbol': symbol, 'industry': industry}
         )
         logger.info(f'Added company {name} for user {user.username}')
         return company
     
     @staticmethod
-    def remove_company(user: User, company_id: str) -> bool:
+    def remove_company(user: User, name: str) -> bool:
         """
         Remove company for user
         """
-        profile = user.profile
-        try:
-            company = UserCompany.objects.get(id=company_id, profile=profile)
-            company.delete()
-            logger.info(f'Removed company {company_id} for user {user.username}')
-            return True
-        except UserCompany.DoesNotExist:
-            return False
+        deleted_count, _ = UserCompany.objects.filter(
+            user=user,
+            name=name
+        ).delete()
+        return deleted_count > 0
     
     @staticmethod
     def get_user_companies(user: User) -> List[UserCompany]:
         """
-        Get all companies followed by user
+        Get all companies for user
         """
-        profile = user.profile
-        return UserCompany.objects.filter(profile=profile).order_by('-created_at')
+        return UserCompany.objects.filter(user=user)
+    
+    @staticmethod
+    def update_company_price(
+        company: UserCompany,
+        price: float
+    ) -> None:
+        """
+        Update company price
+        """
+        company.current_price = price
+        company.price_updated_at = timezone.now()
+        company.save()
 
 
 class UserIndustryService:
     """Service for user industries"""
     
     @staticmethod
-    def add_industry(
-        user: User,
-        name: str
-    ) -> UserIndustry:
+    def add_industry(user: User, name: str, description: str = None) -> UserIndustry:
         """
         Add industry for user
         """
-        profile = user.profile
         industry, created = UserIndustry.objects.get_or_create(
-            profile=profile,
-            name=name
+            user=user,
+            name=name,
+            defaults={'description': description}
         )
         logger.info(f'Added industry {name} for user {user.username}')
         return industry
     
     @staticmethod
-    def remove_industry(user: User, industry_id: str) -> bool:
+    def remove_industry(user: User, name: str) -> bool:
         """
         Remove industry for user
         """
-        profile = user.profile
-        try:
-            industry = UserIndustry.objects.get(id=industry_id, profile=profile)
-            industry.delete()
-            logger.info(f'Removed industry {industry_id} for user {user.username}')
-            return True
-        except UserIndustry.DoesNotExist:
-            return False
+        deleted_count, _ = UserIndustry.objects.filter(
+            user=user,
+            name=name
+        ).delete()
+        return deleted_count > 0
     
     @staticmethod
     def get_user_industries(user: User) -> List[UserIndustry]:
         """
         Get all industries for user
         """
-        profile = user.profile
-        return UserIndustry.objects.filter(profile=profile).order_by('-created_at')
+        return UserIndustry.objects.filter(user=user)
+
+
+class PriceAlertService:
+    """Service for price alerts"""
+    
+    @staticmethod
+    def create_alert(
+        user: User,
+        company: UserCompany,
+        alert_type: str,
+        target_price: float
+    ) -> PriceAlert:
+        """
+        Create price alert
+        """
+        alert = PriceAlert.objects.create(
+            user=user,
+            company=company,
+            alert_type=alert_type,
+            target_price=target_price
+        )
+        logger.info(f'Created alert for {company.name} at {target_price}')
+        return alert
+    
+    @staticmethod
+    def get_active_alerts(user: User) -> List[PriceAlert]:
+        """
+        Get active alerts for user
+        """
+        return PriceAlert.objects.filter(
+            user=user,
+            is_active=True,
+            triggered=False
+        )
+    
+    @staticmethod
+    def check_alert_triggered(
+        alert: PriceAlert,
+        current_price: float
+    ) -> bool:
+        """
+        Check if alert should be triggered
+        """
+        if alert.alert_type == 'above':
+            return current_price >= alert.target_price
+        else:  # below
+            return current_price <= alert.target_price
+    
+    @staticmethod
+    def trigger_alert(alert: PriceAlert) -> None:
+        """
+        Trigger alert
+        """
+        alert.triggered = True
+        alert.triggered_at = timezone.now()
+        alert.save()
+        logger.info(f'Alert triggered for {alert.company.name}')

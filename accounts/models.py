@@ -1,144 +1,185 @@
 from django.db import models
 from django.contrib.auth.models import User
-from django.core.validators import MinValueValidator, MaxValueValidator
-from core.constants import UserStatusChoices, BriefingFrequencyChoices
+from core.constants import UserRoleChoices, BRIEFING_TIMEZONE, DEFAULT_CURRENCY
 import uuid
 
 
 class UserProfile(models.Model):
-    """Extended user profile with preferences and settings"""
+    """Extended user profile"""
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
-    telegram_user_id = models.BigIntegerField(unique=True, null=True, blank=True)
-    telegram_chat_id = models.BigIntegerField(unique=True, null=True, blank=True)
+    
+    # Telegram integration
+    telegram_user_id = models.BigIntegerField(null=True, blank=True, unique=True)
+    telegram_chat_id = models.BigIntegerField(null=True, blank=True)
     telegram_username = models.CharField(max_length=255, null=True, blank=True)
     
-    # Profile Information
-    bio = models.TextField(null=True, blank=True)
-    profession = models.CharField(max_length=255, null=True, blank=True)
-    avatar_url = models.URLField(null=True, blank=True)
+    # User preferences
+    timezone = models.CharField(max_length=50, default=BRIEFING_TIMEZONE)
+    language = models.CharField(max_length=10, default='en')
+    currency = models.CharField(max_length=10, default=DEFAULT_CURRENCY)
+    verbose_mode = models.BooleanField(default=False, help_text='More detailed responses')
     
-    # Status and Preferences
-    status = models.CharField(
-        max_length=20,
-        choices=[(choice.value, choice.name) for choice in UserStatusChoices],
-        default=UserStatusChoices.ONBOARDING.value
-    )
-    is_onboarding_complete = models.BooleanField(default=False)
-    onboarding_step = models.IntegerField(default=0, help_text='Current step in onboarding flow')
-    
-    # Notification Preferences
+    # Notifications
     notifications_enabled = models.BooleanField(default=True)
     morning_briefing_enabled = models.BooleanField(default=True)
-    evening_summary_enabled = models.BooleanField(default=True)
-    weekly_digest_enabled = models.BooleanField(default=True)
-    breaking_news_enabled = models.BooleanField(default=False)
+    briefing_time = models.TimeField(default='09:00')
+    price_alerts_enabled = models.BooleanField(default=True)
     
-    # Briefing Times
-    morning_briefing_hour = models.IntegerField(
-        default=8,
-        validators=[MinValueValidator(0), MaxValueValidator(23)]
-    )
-    evening_briefing_hour = models.IntegerField(
-        default=17,
-        validators=[MinValueValidator(0), MaxValueValidator(23)]
-    )
-    timezone = models.CharField(max_length=50, default='UTC')
-    
-    # Communication Preferences
-    language = models.CharField(max_length=10, default='en')
-    verbose_mode = models.BooleanField(
-        default=False,
-        help_text='Send detailed responses instead of concise ones'
+    # User role
+    role = models.CharField(
+        max_length=20,
+        choices=[(choice.value, choice.name) for choice in UserRoleChoices],
+        default=UserRoleChoices.USER.value
     )
     
-    # Metadata
+    # Onboarding
+    is_onboarding_complete = models.BooleanField(default=False)
+    onboarding_completed_at = models.DateTimeField(null=True, blank=True)
+    
+    # Activity tracking
+    last_activity_at = models.DateTimeField(null=True, blank=True)
+    last_briefing_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    
+    # Account status
+    is_verified = models.BooleanField(default=False)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    
+    # Preferences for content
+    favorite_industries = models.JSONField(default=list, blank=True)
+    risk_tolerance = models.CharField(
+        max_length=20,
+        choices=[('low', 'Low'), ('medium', 'Medium'), ('high', 'High')],
+        default='medium'
+    )
+    
+    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    last_active = models.DateTimeField(null=True, blank=True)
     
     class Meta:
         db_table = 'user_profile'
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['telegram_user_id']),
-            models.Index(fields=['telegram_chat_id']),
-            models.Index(fields=['status']),
-        ]
+        verbose_name = 'User Profile'
     
     def __str__(self):
-        return f"Profile: {self.user.username}"
-    
-    def mark_active(self):
-        """Mark user as active"""
-        from django.utils import timezone
-        self.last_active = timezone.now()
-        self.save(update_fields=['last_active'])
+        return f'Profile: {self.user.username}'
     
     def complete_onboarding(self):
         """Mark onboarding as complete"""
+        from django.utils import timezone
         self.is_onboarding_complete = True
-        self.status = UserStatusChoices.ACTIVE.value
+        self.onboarding_completed_at = timezone.now()
         self.save()
+    
+    def update_last_activity(self):
+        """Update last activity timestamp"""
+        from django.utils import timezone
+        self.last_activity_at = timezone.now()
+        self.save(update_fields=['last_activity_at'])
 
 
 class UserInterest(models.Model):
-    """User interests and preferences"""
+    """User interests in financial topics"""
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    profile = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='interests')
-    name = models.CharField(max_length=255)
-    category = models.CharField(max_length=100, null=True, blank=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='interests')
+    name = models.CharField(max_length=100)
+    description = models.TextField(null=True, blank=True)
+    
+    # Tracking
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
         db_table = 'user_interest'
-        unique_together = ['profile', 'name']
+        unique_together = ('user', 'name')
         ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['profile', 'category']),
-        ]
     
     def __str__(self):
-        return f"{self.profile.user.username} - {self.name}"
+        return f'{self.user.username}: {self.name}'
 
 
 class UserCompany(models.Model):
     """Companies followed by user"""
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    profile = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='followed_companies')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='companies')
     name = models.CharField(max_length=255)
-    symbol = models.CharField(max_length=20, null=True, blank=True)
+    symbol = models.CharField(max_length=10, null=True, blank=True)
     industry = models.CharField(max_length=100, null=True, blank=True)
+    description = models.TextField(null=True, blank=True)
+    
+    # Price tracking
+    current_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    price_updated_at = models.DateTimeField(null=True, blank=True)
+    
+    # Alerts
+    price_alert_enabled = models.BooleanField(default=True)
+    price_alert_threshold = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    
+    # Tracking
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
         db_table = 'user_company'
-        unique_together = ['profile', 'symbol'] if 'symbol' else ['profile', 'name']
+        unique_together = ('user', 'name')
         ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['profile', 'symbol']),
-            models.Index(fields=['symbol']),
-        ]
     
     def __str__(self):
-        return f"{self.profile.user.username} - {self.name}"
+        return f'{self.user.username}: {self.name} ({self.symbol})'
 
 
 class UserIndustry(models.Model):
-    """Industries of interest to user"""
+    """Industries followed by user"""
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    profile = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='industries')
-    name = models.CharField(max_length=255)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='industries')
+    name = models.CharField(max_length=100)
+    description = models.TextField(null=True, blank=True)
+    
+    # Tracking
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
         db_table = 'user_industry'
-        unique_together = ['profile', 'name']
+        unique_together = ('user', 'name')
         ordering = ['-created_at']
     
     def __str__(self):
-        return f"{self.profile.user.username} - {self.name}"
+        return f'{self.user.username}: {self.name}'
+
+
+class PriceAlert(models.Model):
+    """Price alerts for stocks"""
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='price_alerts')
+    company = models.ForeignKey(UserCompany, on_delete=models.CASCADE, related_name='alerts')
+    
+    # Alert conditions
+    alert_type = models.CharField(
+        max_length=20,
+        choices=[('above', 'Price Above'), ('below', 'Price Below')],
+        default='above'
+    )
+    target_price = models.DecimalField(max_digits=10, decimal_places=2)
+    
+    # Status
+    is_active = models.BooleanField(default=True)
+    triggered_at = models.DateTimeField(null=True, blank=True)
+    triggered = models.BooleanField(default=False)
+    
+    # Notification
+    notification_sent = models.BooleanField(default=False)
+    
+    # Tracking
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'price_alert'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f'{self.user.username}: {self.company.name} {self.alert_type} {self.target_price}'

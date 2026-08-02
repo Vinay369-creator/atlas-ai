@@ -1,4 +1,4 @@
-"""Core exceptions for Atlas AI application"""
+# Custom exceptions for the application
 
 
 class AtlasAIException(Exception):
@@ -6,76 +6,46 @@ class AtlasAIException(Exception):
     pass
 
 
-class TelegramException(AtlasAIException):
-    """Telegram bot related exceptions"""
-    pass
-
-
-class TelegramWebhookException(TelegramException):
-    """Telegram webhook related exceptions"""
-    pass
-
-
-class TelegramMessageException(TelegramException):
-    """Telegram message sending exceptions"""
+class LLMAPIException(AtlasAIException):
+    """Exception for LLM API errors"""
     pass
 
 
 class AIException(AtlasAIException):
-    """AI and LLM related exceptions"""
+    """Exception for AI service errors"""
     pass
 
 
-class LLMAPIException(AIException):
-    """LLM API call exceptions"""
+class AuthenticationException(AtlasAIException):
+    """Exception for authentication errors"""
     pass
 
 
-class PromptException(AIException):
-    """Prompt generation exceptions"""
-    pass
-
-
-class FinanceException(AtlasAIException):
-    """Finance related exceptions"""
-    pass
-
-
-class NewsAPIException(FinanceException):
-    """News API related exceptions"""
-    pass
-
-
-class StockAPIException(FinanceException):
-    """Stock API related exceptions"""
-    pass
-
-
-class IntegrationException(AtlasAIException):
-    """Integration related exceptions"""
-    pass
-
-
-class GmailException(IntegrationException):
-    """Gmail integration exceptions"""
-    pass
-
-
-class GoogleCalendarException(IntegrationException):
-    """Google Calendar integration exceptions"""
-    pass
-
-
-class SchedulerException(AtlasAIException):
-    """Scheduler related exceptions"""
-    pass
-
-
-class NotificationException(AtlasAIException):
-    """Notification related exceptions"""
+class AuthorizationException(AtlasAIException):
+    """Exception for authorization errors"""
     pass
 
 
 class ValidationException(AtlasAIException):
-    """Data validation exceptions"""
+    """Exception for validation errors"""
+    pass
+
+
+class DataNotFound(AtlasAIException):
+    """Exception when data is not found"""
+    pass
+
+
+class ExternalAPIException(AtlasAIException):
+    """Exception for external API errors"""
+    pass
+
+
+class RateLimitException(AtlasAIException):
+    """Exception for rate limit errors"""
+    pass
+
+
+class InternalException(AtlasAIException):
+    """Exception for internal server errors"""
     pass

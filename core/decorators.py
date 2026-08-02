@@ -1,65 +1,58 @@
-"""Decorators for Atlas AI application"""
-
-import logging
+from django.utils.decorators import decorator_from_middleware
+from core.middleware import SecurityMiddleware, LoggingMiddleware, ExceptionMiddleware
 import functools
-from typing import Callable, Any
-from core.exceptions import AtlasAIException
+import logging
+from django.http import JsonResponse
+from core.exceptions import (
+    AuthenticationException,
+    AuthorizationException,
+    ValidationException,
+    RateLimitException,
+    InternalException
+)
 
 logger = logging.getLogger(__name__)
 
 
-def handle_exceptions(func: Callable) -> Callable:
-    """Decorator to handle exceptions in functions"""
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
+def authenticate_required(view_func):
+    """Decorator to require authentication"""
+    @functools.wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            raise AuthenticationException('User is not authenticated')
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+def admin_required(view_func):
+    """Decorator to require admin access"""
+    @functools.wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_staff:
+            raise AuthorizationException('Admin access required')
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+def handle_exceptions(view_func):
+    """Decorator to handle exceptions"""
+    @functools.wraps(view_func)
+    def wrapper(request, *args, **kwargs):
         try:
-            return func(*args, **kwargs)
-        except AtlasAIException as e:
-            logger.error(f'Atlas AI Exception in {func.__name__}: {str(e)}')
-            raise
+            return view_func(request, *args, **kwargs)
+        except AuthenticationException as e:
+            logger.warning(f'Authentication error: {str(e)}')
+            return JsonResponse({'error': str(e)}, status=401)
+        except AuthorizationException as e:
+            logger.warning(f'Authorization error: {str(e)}')
+            return JsonResponse({'error': str(e)}, status=403)
+        except ValidationException as e:
+            logger.warning(f'Validation error: {str(e)}')
+            return JsonResponse({'error': str(e)}, status=400)
+        except RateLimitException as e:
+            logger.warning(f'Rate limit error: {str(e)}')
+            return JsonResponse({'error': str(e)}, status=429)
         except Exception as e:
-            logger.error(f'Unexpected exception in {func.__name__}: {str(e)}')
-            raise AtlasAIException(f'Error in {func.__name__}: {str(e)}')
+            logger.error(f'Unexpected error: {str(e)}', exc_info=True)
+            return JsonResponse({'error': 'Internal server error'}, status=500)
     return wrapper
-
-
-def log_execution_time(func: Callable) -> Callable:
-    """Decorator to log function execution time"""
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        import time
-        start_time = time.time()
-        logger.info(f'Starting {func.__name__}')
-        
-        try:
-            result = func(*args, **kwargs)
-            elapsed_time = time.time() - start_time
-            logger.info(f'Completed {func.__name__} in {elapsed_time:.2f}s')
-            return result
-        except Exception as e:
-            elapsed_time = time.time() - start_time
-            logger.error(f'Failed {func.__name__} after {elapsed_time:.2f}s: {str(e)}')
-            raise
-    return wrapper
-
-
-def require_telegram_user(func: Callable) -> Callable:
-    """Decorator to require Telegram user authentication"""
-    @functools.wraps(func)
-    def wrapper(request: Any, *args: Any, **kwargs: Any) -> Any:
-        if not hasattr(request, 'user') or not request.user.is_authenticated:
-            from django.http import JsonResponse
-            return JsonResponse({'error': 'Authentication required'}, status=401)
-        return func(request, *args, **kwargs)
-    return wrapper
-
-
-def rate_limit(calls: int, period: int) -> Callable:
-    """Decorator for rate limiting"""
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Implementation would use Redis for actual rate limiting
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
